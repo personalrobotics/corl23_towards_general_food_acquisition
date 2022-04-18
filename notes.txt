@@ -1,0 +1,9 @@
+time lost tracking
+    iterate through the messages, subtract time between two messages, use the average to create a threashold
+    n times the frquency we expect, if it's more, then we've some number of messages and that is time lost tracking
+
+start time
+    pick time where fork is stationary-ish (within some delta), improves on continuous tracking 
+        filters out fork on table points, use height coordinate
+    pick first few seconds of continuous tracking
+    pick when force is on forque and backtrack
