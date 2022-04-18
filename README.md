@@ -1,2 +1,2 @@
-# Feeding_Study_Cleanup
+# Feeding Study Cleanup
 Cleanup code for 2021 Feeding Study
