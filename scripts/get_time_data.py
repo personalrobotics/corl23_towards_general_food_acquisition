@@ -21,45 +21,36 @@ else:
     print("bad argument(s): " + str(sys.argv))	#shouldnt really come up
     sys.exit(1)
 
-count = 0
-for bagFile in listOfBagFiles:
-    count += 1
-    print("reading file " + str(count) + " of  " + numberOfFiles + ": " + bagFile)
-    #access bag
-    bag = rosbag.Bag(bagFile)
-    bagContents = bag.read_messages()
-    bagName = bag.filename
+with open("information.csv", 'w+') as csvfile:
+    filewriter = csv.writer(csvfile, delimiter = ',')
+    count = 0
+    for bagFile in listOfBagFiles:
+        count += 1
+        print("reading file " + str(count) + " of  " + numberOfFiles + ": " + bagFile)
+        #access bag
+        bag = rosbag.Bag(bagFile)
+        bagContents = bag.read_messages()
+        bagName = bag.filename
 
 
-	#create a new directory
-    folder = bagName.rstrip('.bag')
-    try:	#else already exists
-        os.makedirs(folder)
-    except:
-        pass
-    shutil.copyfile(bagName, folder + '/' + bagName)
+        #get list of topics from the bag
+        listOfTopics = []
+        for topic, msg, t in bagContents:
+            if topic not in listOfTopics:
+                listOfTopics.append(topic)
 
-
-	#get list of topics from the bag
-    listOfTopics = []
-    for topic, msg, t in bagContents:
-        if topic not in listOfTopics:
-            listOfTopics.append(topic)
-
-    # pull from the forquebody topic
-        # find the first five seconds of continuous tracking
-            # determine how frequently messages are sent
-            # calculate the number of messages that should be sent in five seconds
-            # use sequence numbers and timestamps to figure out how many messages have been sent in a time period
-        # beginning of those five seconds is our start time
-
-    for topicName in listOfTopics:
-        if topicName == '/vrpn_client_node/ForqueBody/pose':
-            print("Extracting topic: " + topicName)
-            #Create a new CSV file for each topic
-            filename = folder + '/' + topicName.replace('/', '_') + '.csv'
-            with open(filename, 'w+') as csvfile:
-                filewriter = csv.writer(csvfile, delimiter = ',')
+        # pull from the forquebody topic
+            # find the first five seconds of continuous tracking
+                # determine how frequently messages are sent
+                # calculate the number of messages that should be sent in five seconds
+                # use sequence numbers and timestamps to figure out how many messages have been sent in a time period
+            # beginning of those five seconds is our start time
+        
+        for topicName in listOfTopics:
+            if topicName == '/vrpn_client_node/ForqueBody/pose':
+                print("Extracting topic: " + topicName)
+                #Create a new CSV file for each topic
+                    
                 firstIteration = True	#allows header row
                 current = None
                 previous = None
@@ -71,7 +62,7 @@ for bagFile in listOfBagFiles:
                     current = t
                     #write the first row from the first element of each pair
                     if firstIteration:	# header
-                        headers = ["filename","timelosttracking","endtime"]	#first column header
+                        headers = ["file_name","time_lost_tracking","end_time"]	#first column header
                         #for pair in instantaneousListOfData:
                         #    headers.append(pair[0])
                         filewriter.writerow(headers)
@@ -82,8 +73,8 @@ for bagFile in listOfBagFiles:
                         difference = current.to_sec() - previous.to_sec()
                         if difference >= 0.1:
                             time_lost += difference
-                        previous = current
-                    
+                            previous = current
+                            
                 filewriter.writerow([bagName,time_lost,current.to_nsec])                
-    bag.close()
+        bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")

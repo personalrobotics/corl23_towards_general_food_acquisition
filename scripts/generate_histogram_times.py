@@ -82,6 +82,6 @@ for bagFile in listOfBagFiles:
                 plt.legend() 
 
                 plt.savefig(bagName+'.png')
-                plt.show()
+                #plt.show()
     bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")
