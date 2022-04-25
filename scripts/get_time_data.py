@@ -23,6 +23,8 @@ else:
 
 with open("information.csv", 'w+') as csvfile:
     filewriter = csv.writer(csvfile, delimiter = ',')
+    headers = ["file_name","start_time","time_lost_tracking","end_time", "total_duration"]	#first column header
+    filewriter.writerow(headers)
     count = 0
     for bagFile in listOfBagFiles:
         count += 1
@@ -56,25 +58,20 @@ with open("information.csv", 'w+') as csvfile:
                 previous = None
                 time_lost = 0
                 current
+                start_time = 0 # value should never be zero if reading a valid bag file
                 for subtopic, msg, t in bag.read_messages(topicName):	# for each instant in time that has data for topicName
                     #parse data from this instant, which is of the form of multiple lines of "Name: value\n"
                     #	- put it in the form of a list of 2-element lists
                     current = t
-                    #write the first row from the first element of each pair
-                    if firstIteration:	# header
-                        headers = ["file_name","time_lost_tracking","end_time"]	#first column header
-                        #for pair in instantaneousListOfData:
-                        #    headers.append(pair[0])
-                        filewriter.writerow(headers)
-                        firstIteration = False
-                    elif previous == None:  # first real value
+                    if previous == None:  # first real value
+                        start_time = current.to_sec()
                         previous = t
                     else:  
                         difference = current.to_sec() - previous.to_sec()
                         if difference >= 0.1:
                             time_lost += difference
-                            previous = current
+                        previous = current
                             
-                filewriter.writerow([bagName,time_lost,current.to_nsec])                
+                filewriter.writerow([bagName,start_time,time_lost,current.to_sec(),current.to_sec()-start_time])                
         bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")
