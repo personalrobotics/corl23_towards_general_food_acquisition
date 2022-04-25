@@ -1,0 +1,7 @@
+        table_height = None
+        for topic, msg, t in bagContents:
+            if topic == '/vrpn_client_node/ForqueBody/pose':
+                if table_height is None: continue...
+                
+            elif topic == '/vrpn_client_node/TableBody/pose':
+                if table height is unset, then set it...
