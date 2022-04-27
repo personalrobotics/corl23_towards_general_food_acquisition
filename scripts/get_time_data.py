@@ -41,15 +41,12 @@ with open("information.csv", 'w+') as csvfile:
         for topicName in listOfTopics:
             if topicName == '/vrpn_client_node/ForqueBody/pose':
                 print("Extracting topic: " + topicName)
-                    
-                firstIteration = True	#allows header row
                 current = None
                 previous = None
                 time_lost = 0
                 current
                 start_time = 0 # value should never be zero if reading a valid bag file
                 for subtopic, msg, t in bag.read_messages(topicName):	# for each instant in time that has data for topicName
-
                     current = t
                     if previous == None:  # first real value
                         start_time = current.to_sec()
