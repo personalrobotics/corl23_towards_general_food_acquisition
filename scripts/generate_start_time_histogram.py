@@ -49,10 +49,17 @@ with open("information.csv", 'w+') as csvfile:
             if topic not in listOfTopics:
                 listOfTopics.append(topic)
 
-
+        # pull from the forquebody topic
+            # find the first five seconds of continuous tracking
+                # determine how frequently messages are sent
+                # calculate the number of messages that should be sent in five seconds
+                # use sequence numbers and timestamps to figure out how many messages have been sent in a time period
+            # beginning of those five seconds is our start time
         table_pose = None
         best_t = rospy.Time()
+        timestamps = []
         start_time = 0;
+        #timestamps.append(best_t.to_sec())
         for topicName in listOfTopics:
             if topicName == 'vrpn_client_node/TableBody/pose':
                 # set the table pose the first time
@@ -65,7 +72,6 @@ with open("information.csv", 'w+') as csvfile:
                 for i in range(len(msg_list)):	# for each instant in time that has data for topicName
                     if (i == 0):
                         i_subtopic, i_msg, i_t = msg_list[i]
-                        print("start time set")
                         start_time = i_t.to_sec()
                     for j in range(i+1,len(msg_list)):
                         # pull this and previous message
@@ -94,13 +100,18 @@ with open("information.csv", 'w+') as csvfile:
                             p1 = np.array([i_msg.pose.position.x,i_msg.pose.position.y,i_msg.pose.position.z])
                             if (np.linalg.norm(p0 - p1) > distance_threshold):
                                 break
-                            if ((curr_t.to_sec() > best_t.to_sec())):
-                                if best_t == rospy.Time():
-                                    best_t = curr_t
-                                elif (curr_t.to_sec() - best_t.to_sec() < 1):
-                                    # overwrite the best time
-                                    best_t = curr_t
-                                    
+                            if (curr_t.to_sec() > best_t.to_sec()):
+                                # overwrite the best time
+                                best_t = curr_t
+                                timestamps.append(best_t.to_sec()-start_time)
                         
+        plt.title(bagName) 
+                # Show a legend on the plot 
+                #Saving the plot as an image
+        plt.hist(timestamps, 100, facecolor='blue')
+
+        plt.savefig(bagName+'.png')
+        #plt.show()        
+        print(best_t.to_nsec())
         bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")
