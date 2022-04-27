@@ -9,12 +9,12 @@ import rospy
 import numpy as np
 from matplotlib import pyplot as plt
 
-from rospy_message_converter import message_converter
 
 #thresholds
 time_lost_threshold = 0.1
-distance_threshold = 0.01 #TODO: what are the units here?
+distance_moved_threshold = 0.01 #TODO: what are the units here?
 time_duration_threshold = 0.5
+pause_threshold = 1
 
 #verify correct input arguments: 1 or 2
 if (len(sys.argv) == 1):
@@ -85,7 +85,7 @@ with open("information.csv", 'w+') as csvfile:
                         # determine if forque moved too much
                         p0 = np.array([curr_msg.pose.position.x,curr_msg.pose.position.y,curr_msg.pose.position.z])  
                         p1 = np.array([prev_msg.pose.position.x,prev_msg.pose.position.y,prev_msg.pose.position.z])
-                        if (np.linalg.norm(p0 - p1) > distance_threshold):
+                        if (np.linalg.norm(p0 - p1) > distance_moved_threshold):
                             break
 
                         # pull ith message
@@ -98,12 +98,16 @@ with open("information.csv", 'w+') as csvfile:
                             # check distance between i and j
                             p0 = np.array([curr_msg.pose.position.x,curr_msg.pose.position.y,curr_msg.pose.position.z])  
                             p1 = np.array([i_msg.pose.position.x,i_msg.pose.position.y,i_msg.pose.position.z])
-                            if (np.linalg.norm(p0 - p1) > distance_threshold):
+                            if (np.linalg.norm(p0 - p1) > distance_moved_threshold):
                                 break
                             if (curr_t.to_sec() > best_t.to_sec()):
                                 # overwrite the best time
-                                best_t = curr_t
-                                timestamps.append(best_t.to_sec()-start_time)
+                                if best_t == rospy.Time():
+                                    best_t = curr_t
+                                elif (curr_t.to_sec() - best_t.to_sec() < pause_threshold):
+                                    # overwrite the best time
+                                    best_t = curr_t
+                                    timestamps.append(best_t.to_sec()-start_time)
                         
         plt.title(bagName) 
                 # Show a legend on the plot 

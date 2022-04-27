@@ -1,20 +1,18 @@
 from ctypes import sizeof
 import rosbag, sys, csv
 import time
-import string
 import os #for file management make directory
-import shutil #for file management, copy file
 import rosbag
 import rospy
 import numpy as np
-from matplotlib import pyplot as plt
 
-from rospy_message_converter import message_converter
 
 #thresholds
 time_lost_threshold = 0.1
 distance_threshold = 0.01 #TODO: what are the units here?
 time_duration_threshold = 0.5
+pause_threshold = 1
+
 
 #verify correct input arguments: 1 or 2
 if (len(sys.argv) == 1):
@@ -65,7 +63,6 @@ with open("information.csv", 'w+') as csvfile:
                 for i in range(len(msg_list)):	# for each instant in time that has data for topicName
                     if (i == 0):
                         i_subtopic, i_msg, i_t = msg_list[i]
-                        print("start time set")
                         start_time = i_t.to_sec()
                     for j in range(i+1,len(msg_list)):
                         # pull this and previous message
@@ -97,10 +94,10 @@ with open("information.csv", 'w+') as csvfile:
                             if ((curr_t.to_sec() > best_t.to_sec())):
                                 if best_t == rospy.Time():
                                     best_t = curr_t
-                                elif (curr_t.to_sec() - best_t.to_sec() < 1):
+                                elif (curr_t.to_sec() - best_t.to_sec() < pause_threshold):
                                     # overwrite the best time
                                     best_t = curr_t
                                     
-                        
+        print(best_t.to_sec())                
         bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")
