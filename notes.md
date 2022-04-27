@@ -81,3 +81,10 @@ for i in range (len(D)): # i represents start we care about
         - ++ Solution: implement a force threshold (moving the fork downwards/hitting the food) and stop looking for a start time if that happens
 
 
+- when do we stop tracking?
+    - at the end of the first interval of no motion?
+        - ++ easiest to implement, can use other options as failsafes
+    - when the force threshold is reached?
+        - -- is harder to implement since we currently only have pose information
+    - when we're at a specific height over the table?
+        - -- hard to calculate height over table currently because it's a diagonal from the table tracker
