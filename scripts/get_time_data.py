@@ -23,7 +23,7 @@ else:
 
 with open("information.csv", 'w+') as csvfile:
     filewriter = csv.writer(csvfile, delimiter = ',')
-    headers = ["file_name","start_time","time_lost_tracking","end_time", "total_duration"]	#first column header
+    headers = ["file_name","bag_start_time","calculated_start_time","time_lost_tracking","end_time", "total_duration"]	#first column header
     filewriter.writerow(headers)
     count = 0
     for bagFile in listOfBagFiles:
@@ -100,9 +100,10 @@ with open("information.csv", 'w+') as csvfile:
                                     best_t = curr_t
                                 elif (curr_t.to_sec() - best_t.to_sec() < 1):
                                     # overwrite the best time
-                                    best_t = curr_t        
+                                    best_t = curr_t
+                                    time_lost = 0        
 
                 # todo maybe: change name of bag file to just the participant, trial, and food            
-                filewriter.writerow([bagName,best_t.to_sec(),time_lost,current.to_sec(),current.to_sec()-start_time])                
+                filewriter.writerow([bagName,start_time,best_t.to_sec(),time_lost,current.to_sec(),current.to_sec()-start_time])                
         bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")
