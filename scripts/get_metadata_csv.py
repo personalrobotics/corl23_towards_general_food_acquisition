@@ -3,6 +3,8 @@ import time
 import os #for file management make directory
 import rospy
 import numpy as np
+import tf_conversions.posemath as pm
+
 
 time_lost_threshold = 0.1
 distance_threshold = 0.01 #TODO: what are the units here? Assuming it's meters
@@ -23,7 +25,9 @@ else:
 
 with open("information.csv", 'w+') as csvfile:
     filewriter = csv.writer(csvfile, delimiter = ',')
-    headers = ["file_name","bag_start_time","calculated_start_time","time_lost_tracking","end_time", "total_duration"]	#first column header
+    headers = ["file_name","bag_start_time","calculated_start_time","time_lost_tracking","end_time", "total_duration",
+            "mouth_position_x", "mouth_position_y", "mouth_position_z", "mouth_orientation_x", "mouth_orientation_y",
+           "mouth_orientation_z", "mouth_orientation_w"]
     filewriter.writerow(headers)
     count = 0
     for bagFile in listOfBagFiles:
@@ -42,21 +46,30 @@ with open("information.csv", 'w+') as csvfile:
                 listOfTopics.append(topic)
 
         table_pose = None
+        mouth_pose = None
         best_t = rospy.Time()
         start_time = 0;
+        current = None
+        previous = None
+        time_lost = 0
         for topicName in listOfTopics:
-            if topicName == 'vrpn_client_node/TableBody/pose':
-                # set the table pose the first time
-                for subtopic, msg, t in bag.read_messages(topicName):
-                    if (table_pose == None):
-                        table_pose = msg.Pose
-                        break;
+            print("Extracting topic: " + topicName)
+
+            if topicName == '/vrpn_client_node/TableBody/pose':
+                # set the table pose using a msg 75% through the bag
+                msg_list = list(bag.read_messages(topicName))
+                index_percentile_75th = int(0.75*len(msg_list))
+                i_subtopic, i_msg, i_t = msg_list[index_percentile_75th]
+                if (table_pose == None):
+                    table_pose = i_msg.pose
+            elif topicName == '/vrpn_client_node/MouthBody/pose':
+                # set the mouth pose using a msg 75% through the bag
+                msg_list = list(bag.read_messages(topicName))
+                index_percentile_75th = int(0.75*len(msg_list))
+                i_subtopic, i_msg, i_t = msg_list[index_percentile_75th]
+                if (mouth_pose == None):
+                    mouth_pose = i_msg.pose
             elif topicName == '/vrpn_client_node/ForqueBody/pose':
-                print("Extracting topic: " + topicName)
-                current = None
-                previous = None
-                time_lost = 0
-                current
                 msg_list = list(bag.read_messages(topicName))
                 for i in range(len(msg_list)):	# for each instant in time that has data for topicName
                     i_subtopic, i_msg, i_t = msg_list[i]
@@ -86,8 +99,6 @@ with open("information.csv", 'w+') as csvfile:
                         if (np.linalg.norm(p0 - p1) > distance_threshold):
                             break
 
-
-
                         # did we hit our time threshold
                         if (curr_t.to_sec() - i_t.to_sec() >= time_duration_threshold):
                             # check distance between i and j
@@ -103,7 +114,21 @@ with open("information.csv", 'w+') as csvfile:
                                     best_t = curr_t
                                     time_lost = 0        
 
-                # todo maybe: change name of bag file to just the participant, trial, and food            
-                filewriter.writerow([bagName,start_time,best_t.to_sec(),time_lost,current.to_sec(),current.to_sec()-start_time])                
+        # transform so that we get mouth in table frame
+        table_pykdl_frame = pm.fromMsg(table_pose).Inverse();
+        mouth_pykdl_frame = pm.fromMsg(mouth_pose)
+        mouth_to_table_transform = (table_pykdl_frame * mouth_pykdl_frame)
+        # extract in the form of pose and quaternion
+        # TODO: verify using Amal's code
+        mouth_position_x, mouth_position_y, mouth_position_z = mouth_to_table_transform.p
+        mouth_orientation_x, mouth_orientation_y, mouth_orientation_z, mouth_orientation_w = mouth_to_table_transform.M.GetQuaternion()
+
+
+        # TODO: maybe change name of bag file to just the participant, trial, and food for ease of reading
+        # ["file_name","bag_start_time","calculated_start_time","time_lost_tracking","end_time", "total_duration",
+        #    "mouth_position_x", "mouth_position_y", "mouth_position_z", "mouth_orientation_x", "mouth_orientation_y",
+        #   "mouth_orientation_z", "mouth_orientation_w"]        
+        filewriter.writerow([bagName,start_time,best_t.to_sec(),time_lost,current.to_sec(),current.to_sec()-start_time,mouth_position_x, mouth_position_y, mouth_position_z, mouth_orientation_x, mouth_orientation_y,
+           mouth_orientation_z, mouth_orientation_w])                
         bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")
