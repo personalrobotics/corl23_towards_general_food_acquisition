@@ -88,3 +88,21 @@ for i in range (len(D)): # i represents start we care about
         - -- is harder to implement since we currently only have pose information
     - when we're at a specific height over the table?
         - -- hard to calculate height over table currently because it's a diagonal from the table tracker
+
+
+## transforms
+### metadata.csv
+- (7 columns) get mouth relative to the table
+    - take pose of the mouth and table
+        - ~~treat as 6 variables, average the normal ones, average the quaternion~~
+        - take a mouth and table pose 75% of the way through the bag (not quite the average but not the first in case something is wrong)
+        - TODO: Is it a concern if either the table or the mouth loses tracking and so the msg we use for each is different? This is technically solved by taking the average and the difference would be minor
+- README FILE (intrinsics of camera info)
+- (7 columns) get realsense information relative to the table
+    - take the table pose and the camera pose (physical camera) 75% of the way through the bag, take the transform
+    - multiply against the frame from Amal's code (which gets from camera to realsense camera)
+    - we want the realsense's data relative to the table
+
+### other csv
+- loop through all the events in the rosbag
+- record timestamp of event, and if it corresponds with forcetorque, if it corresponds with forque position (forque relative to the table) (timestamp and the reading from the sensor we used)
