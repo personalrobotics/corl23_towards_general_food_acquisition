@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="tf2_ros" type="static_transform_publisher" name="link1_broadcaster" args="0.00922705  0.00726385  0.01964674 -0.10422086  0.08057444 -0.69519346 0.7061333 CameraBody camera_link" />
+  <node pkg="feeding_study_cleanup" type="publish_transforms.py" name="publish_transforms"/>
+</launch>
