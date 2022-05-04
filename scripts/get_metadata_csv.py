@@ -4,6 +4,7 @@ import os #for file management make directory
 import rospy
 import numpy as np
 import tf_conversions.posemath as pm
+import PyKDL
 
 
 time_lost_threshold = 0.1
@@ -27,7 +28,8 @@ with open("information.csv", 'w+') as csvfile:
     filewriter = csv.writer(csvfile, delimiter = ',')
     headers = ["file_name","bag_start_time","calculated_start_time","time_lost_tracking","end_time", "total_duration",
             "mouth_position_x", "mouth_position_y", "mouth_position_z", "mouth_orientation_x", "mouth_orientation_y",
-           "mouth_orientation_z", "mouth_orientation_w"]
+           "mouth_orientation_z", "mouth_orientation_w", "camera_position_x", "camera_position_y", "camera_position_z",
+           "camera_orientation_x", "camera_orientation_y", "camera_orientation_z", "camera_orientation_w"]
     filewriter.writerow(headers)
     count = 0
     for bagFile in listOfBagFiles:
@@ -47,13 +49,17 @@ with open("information.csv", 'w+') as csvfile:
 
         table_pose = None
         mouth_pose = None
+        camera_pose = None
         best_t = rospy.Time()
         start_time = 0;
         current = None
         previous = None
         time_lost = 0
+        mouth_position_x, mouth_position_y, mouth_position_z, mouth_orientation_x, mouth_orientation_y, mouth_orientation_z, mouth_orientation_w = [None]*7
+        camera_position_x, camera_position_y, camera_position_z, camera_orientation_x, camera_orientation_y, camera_orientation_z, camera_orientation_w = [None]*7
+
         for topicName in listOfTopics:
-            print("Extracting topic: " + topicName)
+            #print("Extracting topic: " + topicName)
 
             if topicName == '/vrpn_client_node/TableBody/pose':
                 # set the table pose using a msg 75% through the bag
@@ -69,6 +75,13 @@ with open("information.csv", 'w+') as csvfile:
                 i_subtopic, i_msg, i_t = msg_list[index_percentile_75th]
                 if (mouth_pose == None):
                     mouth_pose = i_msg.pose
+            elif topicName == '/vrpn_client_node/CameraBody/pose':
+                # set the camera pose using a msg 75% through the bag
+                msg_list = list(bag.read_messages(topicName))
+                index_percentile_75th = int(0.75*len(msg_list))
+                i_subtopic, i_msg, i_t = msg_list[index_percentile_75th]
+                if (camera_pose == None):
+                    camera_pose = i_msg.pose
             elif topicName == '/vrpn_client_node/ForqueBody/pose':
                 msg_list = list(bag.read_messages(topicName))
                 for i in range(len(msg_list)):	# for each instant in time that has data for topicName
@@ -114,14 +127,31 @@ with open("information.csv", 'w+') as csvfile:
                                     best_t = curr_t
                                     time_lost = 0        
 
-        # transform so that we get mouth in table frame
-        table_pykdl_frame = pm.fromMsg(table_pose).Inverse();
-        mouth_pykdl_frame = pm.fromMsg(mouth_pose)
-        mouth_to_table_transform = (table_pykdl_frame * mouth_pykdl_frame)
-        # extract in the form of pose and quaternion
-        # TODO: verify using Amal's code
-        mouth_position_x, mouth_position_y, mouth_position_z = mouth_to_table_transform.p
-        mouth_orientation_x, mouth_orientation_y, mouth_orientation_z, mouth_orientation_w = mouth_to_table_transform.M.GetQuaternion()
+        if (table_pose != None):
+            table_pykdl_frame = pm.fromMsg(table_pose).Inverse();
+
+            if (mouth_pose != None):
+                # transform so that we get mouth in table frame
+                mouth_pykdl_frame = pm.fromMsg(mouth_pose)
+                mouth_to_table_transform = (table_pykdl_frame * mouth_pykdl_frame)
+                # extract in the form of pose and quaternion
+                # TODO: verify using Amal's code
+                mouth_position_x, mouth_position_y, mouth_position_z = mouth_to_table_transform.p
+                mouth_orientation_x, mouth_orientation_y, mouth_orientation_z, mouth_orientation_w = mouth_to_table_transform.M.GetQuaternion()
+
+            if (camera_pose != None):
+                # transform so we have physical camera in table frame
+                camera_pykdl_frame = pm.fromMsg(camera_pose)
+                camera_to_table_transform = (table_pykdl_frame * camera_pykdl_frame)
+                # create a transform
+                vector = PyKDL.Vector(0.00922705, 0.00726385, 0.01964674)
+                rotation = PyKDL.Rotation.Quaternion(-0.10422086, 0.08057444, -0.69519346, 0.7061333)
+                camera_realsense_pykdl_frame = PyKDL.Frame(rotation,vector)
+                # transform so we have realsense in table frame
+                realsense_to_table_transform = (camera_to_table_transform * camera_realsense_pykdl_frame)
+                # extract in the form of pose and quaternion
+                camera_position_x, camera_position_y, camera_position_z = realsense_to_table_transform.p
+                camera_orientation_x, camera_orientation_y, camera_orientation_z, camera_orientation_w = realsense_to_table_transform.M.GetQuaternion()
 
 
         # TODO: maybe change name of bag file to just the participant, trial, and food for ease of reading
@@ -129,6 +159,7 @@ with open("information.csv", 'w+') as csvfile:
         #    "mouth_position_x", "mouth_position_y", "mouth_position_z", "mouth_orientation_x", "mouth_orientation_y",
         #   "mouth_orientation_z", "mouth_orientation_w"]        
         filewriter.writerow([bagName,start_time,best_t.to_sec(),time_lost,current.to_sec(),current.to_sec()-start_time,mouth_position_x, mouth_position_y, mouth_position_z, mouth_orientation_x, mouth_orientation_y,
-           mouth_orientation_z, mouth_orientation_w])                
+           mouth_orientation_z, mouth_orientation_w, camera_position_x, camera_position_y, camera_position_z, 
+           camera_orientation_x, camera_orientation_y, camera_orientation_z, camera_orientation_w])                
         bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")
