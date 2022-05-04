@@ -65,6 +65,9 @@ with open("information.csv", 'w+') as csvfile:
         mouth_pykdl_frame = pm.fromMsg(mouth_pose)
         mouth_to_table_transform = (table_pykdl_frame * mouth_pykdl_frame)
         print (mouth_to_table_transform)
+        mouth_position_x, mouth_position_y, mouth_position_z = mouth_to_table_transform.p
+        mouth_orientation_x, mouth_orientation_y, mouth_orientation_z, mouth_orientation_w = mouth_to_table_transform.M.GetQuaternion()
+
 
         bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")
