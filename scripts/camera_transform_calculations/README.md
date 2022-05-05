@@ -17,7 +17,7 @@ The final step involved loading all the labeled lines of the CSVs, running [solv
 
 ## Publishing the transform
 
-`roslaunch feeding_study_cleanup camera_transform.launch`
+`roslaunch feeding_study_cleanup tf_transform.launch`
 
 Open RVIZ and open the config `rviz/expanded_action_space.rviz`
 
