@@ -13,12 +13,13 @@ class ForqueBodyTransformer:
         self.pub = rospy.Publisher('forque_tip', PoseStamped, queue_size=1)
 
         # self.transform times a vector in forktip frame will give a vector in ForqueBody frame
-        self.transform = np.linalg.inv(np.array([
+        self.transform = np.linalg.inv(np.array(tf.transformations.rotation_matrix(np.pi/2, (0,0,1)) @ [
             [0.7242579781,	 0.4459343445,	-0.5259778548,	-0.003609486659],
             [-0.3048250761,	 0.8912113169,	 0.3359484526,	 0.00490096214 ],
             [0.6185878081,	-0.08298122464,	 0.7813997912,	-0.2091574497  ],
             [0,	             0,	             0,	             1             ],
         ]))
+        print(tf.transformations.translation_from_matrix(self.transform), tf.transformations.quaternion_from_matrix(self.transform))
 
     def forque_body_callback(self, msg):
         """

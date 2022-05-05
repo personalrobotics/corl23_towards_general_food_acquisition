@@ -1,5 +1,5 @@
 <launch>
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_broadcaster" args="0.00922705  0.00726385  0.01964674 -0.10422086  0.08057444 -0.69519346 0.7061333 CameraBody camera_link" />
-  <node pkg="tf2_ros" type="static_transform_publisher" name="fork_broadcaster" args="0.13347163  -0.02011249  0.1598728 0.11364137 0.31048052 0.20366851 0.92150748 ForqueBody fork_tip" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="fork_broadcaster" args="0.13347163 -0.02011249  0.1598728 -0.13918934  0.2998962  -0.50758908 0.79561947 ForqueBody fork_tip" />
   <node pkg="feeding_study_cleanup" type="publish_transforms.py" name="publish_transforms"/>
 </launch>
