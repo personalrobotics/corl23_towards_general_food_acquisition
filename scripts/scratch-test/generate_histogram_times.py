@@ -1,17 +1,22 @@
-from contextlib import nullcontext
-import rosbag, sys, csv
+import rosbag, sys
 import time
-import string
 import os #for file management make directory
-import shutil #for file management, copy file
 import rosbag
 from matplotlib import pyplot as plt
-import numpy as np
 
 # For now, manually specify which topic contains the image messages.
 
 #verify correct input arguments: 1 or 2
-if (len(sys.argv) == 1):
+if (len(sys.argv) > 2):
+	print("invalid number of arguments:   " + str(len(sys.argv)))
+	print("should be 2: 'get_metadata_csv.py' and 'bagName'")
+	print("or just 1  : 'get_metadata_csv.py'")
+	sys.exit(1)
+elif (len(sys.argv) == 2):
+    listOfBagFiles = [sys.argv[1]]	#get list of only bag files in current dir.
+    numberOfFiles = str(len(listOfBagFiles))
+    print("reading only 1 bagfile: " + str(listOfBagFiles[0]))
+elif (len(sys.argv) == 1):
     listOfBagFiles = [f for f in os.listdir(".") if f[-4:] == ".bag"]	#get list of only bag files in current dir.
     numberOfFiles = str(len(listOfBagFiles))
     print("reading all " + numberOfFiles + " bagfiles in current directory: \n")
@@ -31,16 +36,6 @@ for bagFile in listOfBagFiles:
     bag = rosbag.Bag(bagFile)
     bagContents = bag.read_messages()
     bagName = bag.filename
-
-
-	#create a new directory
-    folder = bagName.rstrip('.bag')
-    try:	#else already exists
-        os.makedirs(folder)
-    except:
-        pass
-    shutil.copyfile(bagName, folder + '/' + bagName)
-
 
 	#get list of topics from the bag
     listOfTopics = []

@@ -1,12 +1,9 @@
 from ctypes import sizeof
-import rosbag, sys, csv
+import rosbag, sys
 import time
-import string
 import os #for file management make directory
-import shutil #for file management, copy file
 import rosbag
 import rospy
-import numpy as np
 from matplotlib import pyplot as plt
 
 
