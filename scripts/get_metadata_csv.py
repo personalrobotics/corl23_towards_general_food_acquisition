@@ -9,17 +9,20 @@ import PyKDL
 
 time_lost_threshold = 0.1
 distance_threshold = 0.01 # 1cm
-time_duration_threshold = 0.5
-updated_start_time_max_duration = 2 # sec
+time_duration_threshold = 0.3 
+updated_start_time_max_duration = 4 # sec
 height_threshold = 0.03 # 3cm
-force_threshold = 1 # assuming in newtons
+force_threshold = 2.1 # assuming in newtons
+force_duration_threshold = 0.3
+updated_force_time_max_duration = 1
+
 
 listOfBagFiles = []
 #verify correct input arguments: 1 or 2
 if (len(sys.argv) > 2):
 	print("invalid number of arguments:   " + str(len(sys.argv)))
-	print("should be 2: 'bag2csv.py' and 'bagName'")
-	print("or just 1  : 'bag2csv.py'")
+	print("should be 2: 'get_metadata_csv.py' and 'bagName'")
+	print("or just 1  : 'get_metadata_csv.py'")
 	sys.exit(1)
 elif (len(sys.argv) == 2):
     listOfBagFiles = [sys.argv[1]]	#get list of only bag files in current dir.
@@ -74,28 +77,42 @@ with open("information.csv", 'w+') as csvfile:
         camera_position_x, camera_position_y, camera_position_z, camera_orientation_x, camera_orientation_y, camera_orientation_z, camera_orientation_w = [None]*7
 
         for topicName in listOfTopics:
-            print("Extracting topic: " + topicName)
             if topicName == '/forque/forqueSensor':
-                #do something
-                for subtopic, msg, t in bag.read_messages(topicName):	# for each instant in time that has data for topicName
-                    force_array = np.array([msg.wrench.force.x,msg.wrench.force.y,msg.wrench.force.z])  
-                    l2 = np.linalg.norm(force_array,2)
-                    if (l2 > 1):
-                        force_threshold_timestamp = t
-                        break         
-        #bag.close()
+                msg_list = list(bag.read_messages(topicName))
+                for i in range(len(msg_list)):	# for each instant in time that has data for topicName
+                    print("i ", i)
+                    i_subtopic, i_msg, i_t = msg_list[i]
+                    force_array_i = np.array([i_msg.wrench.force.x,i_msg.wrench.force.y,i_msg.wrench.force.z])  
+                    l2_i = np.linalg.norm(force_array_i,2)
 
-        for topicName in listOfTopics:
-            #print("Extracting topic: " + topicName)
-
-            if topicName == '/vrpn_client_node/TableBody/pose':
+                    if (l2_i > force_threshold):
+                        for j in range(i+1,len(msg_list)):	# for each instant in time that has data for topicName
+                            j_subtopic, j_msg, j_t = msg_list[j]
+                            force_array_j = np.array([j_msg.wrench.force.x,j_msg.wrench.force.y,j_msg.wrench.force.z])  
+                            l2_j = np.linalg.norm(force_array_j,2)
+                                # break due to threshold not reached
+                            if l2_j < force_threshold:
+                                break
+                            if (j_t.to_sec() - i_t.to_sec() > force_duration_threshold):
+                                if force_threshold_timestamp == None:
+                                    force_threshold_timestamp = i_t
+                                    print("set force threshold timestamp", force_threshold_timestamp.to_sec())
+                                if (j_t.to_sec() - force_threshold_timestamp.to_sec() < updated_force_time_max_duration):
+                                    force_threshold_timestamp = i_t
+                print("set force threshold timestamp", force_threshold_timestamp.to_sec())
+            elif topicName == '/vrpn_client_node/TableBody/pose':
                 # set the table pose using a msg 75% through the bag
                 msg_list = list(bag.read_messages(topicName))
                 index_percentile_75th = int(0.75*len(msg_list))
                 i_subtopic, i_msg, i_t = msg_list[index_percentile_75th]
                 if (table_pose == None):
                     table_pose = i_msg.pose
-            elif topicName == '/vrpn_client_node/MouthBody/pose':
+                                      
+        #bag.close()
+
+        for topicName in listOfTopics:
+            #print("Extracting topic: " + topicName)
+            if topicName == '/vrpn_client_node/MouthBody/pose':
                 # set the mouth pose using a msg 75% through the bag
                 msg_list = list(bag.read_messages(topicName))
                 index_percentile_75th = int(0.75*len(msg_list))
@@ -108,25 +125,21 @@ with open("information.csv", 'w+') as csvfile:
                 index_percentile_75th = int(0.75*len(msg_list))
                 i_subtopic, i_msg, i_t = msg_list[index_percentile_75th]
                 if (camera_pose == None):
-                    camera_pose = i_msg.pose
-            elif topicName == '/forque/forqueSensor':
-                #do something
-                for subtopic, msg, t in bag.read_messages(topicName):	# for each instant in time that has data for topicName
-                    force_array = np.array([msg.wrench.force.x,msg.wrench.force.y,msg.wrench.force.z])  
-                    l2 = np.linalg.norm(force_array,2)
-                    if (l2 > 1):
-                        force_threshold_timestamp = t
-                        break
-                    
+                    camera_pose = i_msg.pose                    
             elif topicName == '/vrpn_client_node/ForqueBody/pose':
                 msg_list = list(bag.read_messages(topicName))
                 force_threshold_reached = False
                 for i in range(len(msg_list)):	# for each instant in time that has data for topicName
-                    
                     i_subtopic, i_msg, i_t = msg_list[i]
                     print("i", i, i_t.to_sec())
                     if (i == 0):
                         bag_start_time = i_t.to_sec()
+                    if (table_pose == None): break
+
+                    # skip all messages until we are above some height threshold
+                    if (i_msg.pose.position.y - table_pose.position.y < height_threshold): continue
+
+                    
                     current = i_t
                     if previous == None:  # first real value
                         previous = i_t
@@ -174,16 +187,7 @@ with open("information.csv", 'w+') as csvfile:
                                         print("    set best time initial")
                                         best_t = curr_t
                                         time_lost = 0
-                                    elif (curr_t.to_sec() - best_t.to_sec() < updated_start_time_max_duration):
-                                        print("    j", j, curr_t.to_sec())
-                                        print("    set best time")
-                                        # overwrite the best time
-                                        best_t = curr_t
-                                        time_lost = 0   
-                                    else:
-                                        print("    j", j, curr_t.to_sec())
-                                        print("    break due to more than 1 second elapsing since the past start time")
-                                        break
+
                             # if j == len(msg_list)-1:
                             #     print("    j", j, curr_t.to_sec())
                             #     print("    reached end of list")
@@ -220,7 +224,10 @@ with open("information.csv", 'w+') as csvfile:
         # TODO: maybe change name of bag file to just the participant, trial, and food for ease of reading
         # ["file_name","bag_start_time","calculated_start_time","end_time","time_lost_tracking", "total_duration",
         #    "mouth_position_x", "mouth_position_y", "mouth_position_z", "mouth_orientation_x", "mouth_orientation_y",
-        #   "mouth_orientation_z", "mouth_orientation_w"]        
+        #   "mouth_orientation_z", "mouth_orientation_w"]
+        if (best_t == None): best_t = rospy.Time()   
+        if (current == None): current = rospy.Time()   
+  
         filewriter.writerow([bagName,bag_start_time,best_t.to_sec(),current.to_sec(),time_lost,current.to_sec()-bag_start_time,mouth_position_x, mouth_position_y, mouth_position_z, mouth_orientation_x, mouth_orientation_y,
            mouth_orientation_z, mouth_orientation_w, camera_position_x, camera_position_y, camera_position_z, 
            camera_orientation_x, camera_orientation_y, camera_orientation_z, camera_orientation_w])                

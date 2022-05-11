@@ -11,13 +11,19 @@ from matplotlib import pyplot as plt
 
 
 #thresholds
-time_lost_threshold = 0.1
-distance_moved_threshold = 0.01 #TODO: what are the units here?
-time_duration_threshold = 0.5
-pause_threshold = 1
+force_threshold = 2.0 # assuming in newtons
 
 #verify correct input arguments: 1 or 2
-if (len(sys.argv) == 1):
+if (len(sys.argv) > 2):
+	print("invalid number of arguments:   " + str(len(sys.argv)))
+	print("should be 2: 'get_metadata_csv.py' and 'bagName'")
+	print("or just 1  : 'get_metadata_csv.py'")
+	sys.exit(1)
+elif (len(sys.argv) == 2):
+    listOfBagFiles = [sys.argv[1]]	#get list of only bag files in current dir.
+    numberOfFiles = str(len(listOfBagFiles))
+    print("reading only 1 bagfile: " + str(listOfBagFiles[0]))
+elif (len(sys.argv) == 1):
     listOfBagFiles = [f for f in os.listdir(".") if f[-4:] == ".bag"]	#get list of only bag files in current dir.
     numberOfFiles = str(len(listOfBagFiles))
     print("reading all " + numberOfFiles + " bagfiles in current directory: \n")
@@ -58,10 +64,10 @@ for bagFile in listOfBagFiles:
                 force_array = np.array([msg.wrench.force.x,msg.wrench.force.y,msg.wrench.force.z])  
                 l2 = np.linalg.norm(force_array,2)
                 timestamps.append(t.to_sec())
-                if (l2 < 1):
+                if (l2 < force_threshold):
                     norms.append(l2)
                 else: # used to tune what the threshold should be
-                    norms.append(0)
+                    norms.append(l2)
 
             
                         
@@ -69,7 +75,7 @@ for bagFile in listOfBagFiles:
             # Show a legend on the plot 
                 #Saving the plot as an image
     plt.plot(timestamps, norms)
-    #plt.savefig(bagName+'.png')
+    plt.savefig(bagName+'.png')
     plt.show()        
     bag.close()
 print("Done reading all " + numberOfFiles + " bag files.")
