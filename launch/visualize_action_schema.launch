@@ -1,0 +1,29 @@
+<launch>
+  <!-- Exclude the .bag from the filename -->
+  <arg name="rosbag_filename"/>
+
+  <!-- On computer -->
+  <arg name="rosbag_dir" value="/workspace/rosbags/expanded_action_space_study"/>
+  <arg name="action_schema_path" value="/workspace/src/feeding_study_cleanup/scripts/detecting_food/data/action_schema_data.csv"/>
+
+  <!-- On harddrive -->
+  <!-- <arg name="rosbag_dir" value=""/>
+  <arg name="action_schema_path" value="/media/amalnanavati/HCRLAB/2022_11_Bite_Acquisition_Study/extracted_data/action_schema_data_final_2022_05_24.csv"/> -->
+
+  <param name="robot_description" command="cat $(find pr_assets)/data/objects/fork.urdf" />
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
+
+  <param name="/use_sim_time" value="true"/>
+
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_broadcaster" args="0.00922705  0.00726385  0.01964674 -0.10422086  0.08057444 -0.69519346 0.7061333 CameraBody camera_link" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="fork_broadcaster" args="0.13347163 -0.02011249  0.1598728 -0.13918934  0.2998962  -0.50758908 0.79561947 ForqueBody fork_tip" />
+
+  <node pkg="feeding_study_cleanup" type="publish_transforms.py" name="publish_transforms"/>
+
+  <node pkg="rosbag" type="play" name="play" args="--clock $(arg rosbag_dir)/$(arg rosbag_filename).bag --delay=1 --rate=0.1"/> <!-- output="screen"  -->
+
+  <node pkg="feeding_study_cleanup" type="visualize_action_schema.py" name="visualize_action_schema" output="screen">
+    <param name="rosbag_filename" type="string" value="$(arg rosbag_filename)"/>
+    <param name="action_schema_filepath" type="string" value="$(arg action_schema_path)"/>
+  </node>
+</launch>
