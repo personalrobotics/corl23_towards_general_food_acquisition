@@ -26,6 +26,12 @@ PRE_GRASP_TARGET_OFFSET_COLUMNS = [
     "Pre-Grasp Target Offset Z",
 ]
 
+APPROACH_FRAME_COLUMNS = [
+    "Approach Frame Rotation X",
+    "Approach Frame Rotation Y",
+    "Approach Frame Rotation Z",
+]
+
 ACTION_SCHEMA_COLUMNS = [
     "Pre-Grasp Initial Utensil Transform Translation X",
     "Pre-Grasp Initial Utensil Transform Translation Y",
@@ -184,26 +190,43 @@ def linear_average_transform(t0, t1, alpha):
 
 # NOTE: If I make any significant changes to this function I should probably
 # make them to the same function in detect_food_bounding_box.py as well!!!
-def apply_twist(start_transform, twist, duration, granularity):
+def apply_twist(start_transform, approach_frame, food_reference_frame, twist, duration, granularity):
     """
-    NOTE: If I make any significant changes to this function I should probably
-    make them to the same function in detect_food_bounding_box.py as well!!!
+    Let F be the frame that start_transform is in. Then, approach_frame must have
+    as its parent_frame F. And then the angular velocity of the twist will be
+    interpreted in the start_transform frame, but the linear velocity will be
+    interpreted in the approach_frame.
     """
     retval = []
     parent_to_start_transform_matrix = transform_to_matrix(start_transform.transform)
+    parent_to_food_matrix = transform_to_matrix(food_reference_frame.transform)
+    food_to_approach_matrix = transform_to_matrix(approach_frame.transform)
+    start_transform_to_approach_matrix = tf.transformations.concatenate_matrices(tf.transformations.concatenate_matrices(tf.transformations.inverse_matrix(parent_to_start_transform_matrix), parent_to_food_matrix), food_to_approach_matrix)
 
     for i in range(1, granularity+1):
         elapsed_time = duration*float(i)/granularity
         transform = copy.deepcopy(start_transform)
         transform.header.stamp += rospy.Duration(elapsed_time)
+        # Apply the angular velocity in the start_transform frame
         elapsed_transform = tf.transformations.euler_matrix(
             twist.twist.angular.x*elapsed_time,
             twist.twist.angular.y*elapsed_time,
             twist.twist.angular.z*elapsed_time,
             EULER_ORDER)
-        elapsed_transform[0][3] = twist.twist.linear.x*elapsed_time
-        elapsed_transform[1][3] = twist.twist.linear.y*elapsed_time
-        elapsed_transform[2][3] = twist.twist.linear.z*elapsed_time
+        # # Apply the linear velocity in the start_transform frame
+        # elapsed_transform[0][3] = twist.twist.linear.x*elapsed_time
+        # elapsed_transform[1][3] = twist.twist.linear.y*elapsed_time
+        # elapsed_transform[2][3] = twist.twist.linear.z*elapsed_time
+        # Apply the linear velocity in the approach frame
+        displacement = np.array([[twist.twist.linear.x], [twist.twist.linear.y], [twist.twist.linear.z]])*elapsed_time
+        elapsed_transform[0:3, 3:] = np.dot(start_transform_to_approach_matrix[0:3,0:3], displacement)
+        # if i == granularity:
+        #     print("B: displacement in approach frame", displacement)
+        #     print("B: displacement in start transform frame", elapsed_transform[0:3, 3:])
+        #     print("B: transform inv", tf.transformations.inverse_matrix(start_transform_to_approach_matrix))
+        #     print("B: start_transform", start_transform)
+        #     print("B: approach_frame", approach_frame)
+        #     print("B: food_to_approach_matrix", food_to_approach_matrix)
 
         final_matrix = tf.transformations.concatenate_matrices(parent_to_start_transform_matrix, elapsed_transform)
         transform.transform = matrix_to_transform(final_matrix)
@@ -220,6 +243,7 @@ def get_predicted_forque_transform_data(
     pre_grasp_target_offset, # geometry_msgs/Vector3
     pre_grasp_initial_utensil_transform, # geometry_msgs/PoseStamped
     pre_grasp_force_threshold, # float, newtons
+    approach_frame, # geometry_msgs/TransformStamped
     grasp_in_food_twist, # geometry_msgs/TwistStamped
     grasp_force_threshold, # float, newtons
     grasp_torque_threshold, # float, newston-meters
@@ -229,10 +253,6 @@ def get_predicted_forque_transform_data(
     fork_tip_frame_id,
     granularity=20,
 ):
-    """
-    NOTE: If I make any significant changes to this function I should probably
-    make them to the same function in detect_food_bounding_box.py as well!!!
-    """
     predicted_forque_transform_data = []
 
     # Pre-grasp
@@ -269,37 +289,67 @@ def get_predicted_forque_transform_data(
         predicted_forque_transform_data.append(predicted_forque_transform)
 
     # Grasp
-    predicted_forque_transform_data += apply_twist(predicted_forque_transform_data[-1], grasp_in_food_twist, grasp_duration, granularity)
+    predicted_forque_transform_data += apply_twist(predicted_forque_transform_data[-1], approach_frame, food_reference_frame, grasp_in_food_twist, grasp_duration, granularity)
 
     # Extraction
-    predicted_forque_transform_data += apply_twist(predicted_forque_transform_data[-1], extraction_out_of_food_twist, extraction_duration, granularity)
+    predicted_forque_transform_data += apply_twist(predicted_forque_transform_data[-1], approach_frame, food_reference_frame, extraction_out_of_food_twist, extraction_duration, granularity)
 
     return predicted_forque_transform_data
 
-def get_predicted_forque_transform_data_raw(food_reference_frame,
+def get_predicted_forque_transform_data_raw(food_reference_frame, approach_frame,
     action_schema_point, action_schema_start_time, action_schema_contact_time,
     action_schema_extraction_time, action_schema_end_time, world_frame_id,
-    food_frame_id, fork_tip_frame_id):
+    food_frame_id, fork_tip_frame_id, approach_frame_id, num_symmetric_rotations=1):
+    food_reference_frame_msg = TransformStamped(
+        Header(0, rospy.get_rostime(), world_frame_id),
+        food_frame_id,
+        Transform(
+            Vector3(*food_reference_frame[0:3]),
+            Quaternion(*tf.transformations.quaternion_from_euler(*food_reference_frame[3:], axes=EULER_ORDER)),
+        ),
+    )
+    parent_to_food_matrix = transform_to_matrix(food_reference_frame_msg.transform)
+    pre_grasp_initial_utensil_transform = PoseStamped(
+        Header(0, rospy.Time.from_sec(action_schema_start_time), food_frame_id),
+        Pose(
+            Point(*action_schema_point[3:6]),
+            Quaternion(*tf.transformations.quaternion_from_euler(*action_schema_point[6:9], axes=EULER_ORDER)),
+        ),
+    )
+    # Of the different symmetry options, pick the one that has the most positive x and z in the world frame. X is the right side, z is towards the user
+    food_to_forque = pose_to_matrix(pre_grasp_initial_utensil_transform.pose)
+    max_dist = None
+    max_food_to_forque_rotated = None
+    for i in range(num_symmetric_rotations):
+        theta = 2*np.pi/num_symmetric_rotations*i
+        theta_matrix = tf.transformations.rotation_matrix(theta, [0,0,1])
+        food_to_forque_rotated = tf.transformations.concatenate_matrices(theta_matrix, food_to_forque)
+        parent_to_forque_rotated = tf.transformations.concatenate_matrices(parent_to_food_matrix, food_to_forque_rotated)
+        forque_offset_from_food = parent_to_forque_rotated[0:3,3] - parent_to_food_matrix[0:3,3]
+        print("theta", theta, "forque_offset_from_food", forque_offset_from_food)
+        # dist = (forque_offset_from_food[0] + forque_offset_from_food[2])/2 # a heuristic to ick the rotation with the most positive x and z
+        dist = forque_offset_from_food[0]
+        # dist = i == 2
+        if max_dist is None or dist > max_dist:
+            max_dist = dist
+            max_food_to_forque_rotated = food_to_forque_rotated
+    pre_grasp_initial_utensil_transform.pose = matrix_to_pose(max_food_to_forque_rotated)
+
     return get_predicted_forque_transform_data(
         action_schema_start_time,
         action_schema_contact_time,
-        TransformStamped(
-            Header(0, rospy.get_rostime(), world_frame_id),
-            food_frame_id,
-            Transform(
-                Vector3(*food_reference_frame[0:3]),
-                Quaternion(*tf.transformations.quaternion_from_euler(*food_reference_frame[3:], axes=EULER_ORDER)),
-            ),
-        ),
+        food_reference_frame_msg,
         Vector3(*action_schema_point[0:3]),
-        PoseStamped(
-            Header(0, rospy.Time.from_sec(action_schema_start_time), food_frame_id),
-            Pose(
-                Point(*action_schema_point[3:6]),
-                Quaternion(*tf.transformations.quaternion_from_euler(*action_schema_point[6:9], axes=EULER_ORDER)),
+        pre_grasp_initial_utensil_transform,
+        action_schema_point[9],
+        TransformStamped(
+            Header(0, rospy.get_rostime(), food_frame_id),
+            approach_frame_id,
+            Transform(
+                Vector3(0, 0, 0),
+                Quaternion(*tf.transformations.quaternion_from_euler(*approach_frame, axes=EULER_ORDER)),
             ),
         ),
-        action_schema_point[9],
         TwistStamped(
             Header(0, rospy.Time.from_sec(action_schema_contact_time), fork_tip_frame_id),
             Twist(
@@ -324,11 +374,12 @@ def get_predicted_forque_transform_data_raw(food_reference_frame,
 
 class VisualizeActionSchema:
     def __init__(self, rosbag_filename, action_schema_filepath, action_schema_without_target_offset=None,
-    world_frame_id="TableBody", food_frame_id="detected_food", fork_tip_frame_id="fork_tip"):
+    world_frame_id="TableBody", food_frame_id="detected_food", fork_tip_frame_id="fork_tip", approach_frame_id="approach_frame"):
         # Initialize the subscriber and publishers
         self.sub = rospy.Subscriber("forque_tip", PoseStamped, self.forque_tip_callback)
         self.pub = rospy.Publisher('forque_tip/predicted', PoseStamped, queue_size=1)
-        self.tf_broadcaster = tf2_ros.StaticTransformBroadcaster()
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster()
+        self.tf_static_broadcaster = tf2_ros.StaticTransformBroadcaster()
 
         # Load the action_schema CSV
         self.action_schema_point = None
@@ -346,6 +397,7 @@ class VisualizeActionSchema:
                     self.action_schema_extraction_time = float(row[header_to_i["Action Extraction Time"]])+bag_start_time
                     self.action_schema_end_time = float(row[header_to_i["Action End Time"]])+bag_start_time
                     self.food_reference_frame = [float(row[header_to_i[action_schema_column]]) for action_schema_column in FOOD_REFERENCE_FRAME_COLUMNS]
+                    self.approach_frame = [float(row[header_to_i[action_schema_column]]) for action_schema_column in APPROACH_FRAME_COLUMNS]
                     self.action_schema_point = [float(row[header_to_i[action_schema_column]]) for action_schema_column in PRE_GRASP_TARGET_OFFSET_COLUMNS]
                     if action_schema_without_target_offset is None:
                         self.action_schema_point += [float(row[header_to_i[action_schema_column]]) for action_schema_column in ACTION_SCHEMA_COLUMNS]
@@ -353,23 +405,32 @@ class VisualizeActionSchema:
                         self.action_schema_point += action_schema_without_target_offset
                     break
         if self.action_schema_point is None:
-            raise Exception("Bagfile %s not found in Action Schema CSV %s! Exiting." % (rosbag_filename, action_schema_filename))
+            raise Exception("Bagfile %s not found in Action Schema CSV %s! Exiting." % (rosbag_filename, action_schema_filepath))
 
-        # Publish the food reference frame
-        self.tf_broadcaster.sendTransform(TransformStamped(
+        # Compute the static transforms
+        self.world_to_food_transform = TransformStamped(
             Header(0, rospy.get_rostime(), world_frame_id),
             food_frame_id,
             Transform(
                 Vector3(*self.food_reference_frame[0:3]),
                 Quaternion(*tf.transformations.quaternion_from_euler(*self.food_reference_frame[3:], axes=EULER_ORDER)),
             ),
-        ))
+        )
+        self.food_to_approach_transform = TransformStamped(
+            Header(0, rospy.get_rostime(), food_frame_id),
+            approach_frame_id,
+            Transform(
+                Vector3(0, 0, 0),
+                Quaternion(*tf.transformations.quaternion_from_euler(*self.approach_frame, axes=EULER_ORDER)),
+            ),
+        )
+        self.has_sent_static_transforms = False
 
         # Predict the action schema point
-        self.predicted_forque_transform_data = get_predicted_forque_transform_data_raw(self.food_reference_frame,
+        self.predicted_forque_transform_data = get_predicted_forque_transform_data_raw(self.food_reference_frame, self.approach_frame,
             self.action_schema_point, self.action_schema_start_time, self.action_schema_contact_time,
             self.action_schema_extraction_time, self.action_schema_end_time, world_frame_id,
-            food_frame_id, fork_tip_frame_id)
+            food_frame_id, fork_tip_frame_id, approach_frame_id)#, num_symmetric_rotations=4)#
         # print("self.predicted_forque_transform_data", self.predicted_forque_transform_data)
         self.predicted_forque_transform_data_i = 0
 
@@ -378,6 +439,11 @@ class VisualizeActionSchema:
         Takes in the PoseStamped msg for the forque_tip, and published the predicted
         forque_tip pose at that time.
         """
+        if not self.has_sent_static_transforms:
+            self.tf_static_broadcaster.sendTransform(self.world_to_food_transform)
+            self.tf_static_broadcaster.sendTransform(self.food_to_approach_transform)
+            self.has_sent_static_transforms = True
+
         msg_ts = msg.header.stamp
         while self.predicted_forque_transform_data_i < len(self.predicted_forque_transform_data)-1:
             pred_msg_ts = self.predicted_forque_transform_data[self.predicted_forque_transform_data_i].header.stamp

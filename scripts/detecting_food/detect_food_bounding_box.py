@@ -11,6 +11,7 @@ import random
 import rosbag
 import rospy
 from scipy.ndimage import median_filter
+from std_msgs.msg import Header
 import time
 import tf.transformations
 import tf2_py
@@ -666,7 +667,7 @@ def get_food_origin_frames(bounding_ellipses, table, first_camera_image_header,
         ellipse_cx = (center[0] - cx) * z / fx
         ellipse_cy = (center[1] - cy) * z / fy
         # NOTE: I think the computation of is not necessarily correct because
-        # fx and fy are difference and the ellipse is rotated. But anyway this
+        # fx and fy are different and the ellipse is rotated. But anyway this
         # may be good enough.
         ellipse_size_w = size[0] * z / fx
         ellipse_size_h = size[1] * z / fy
@@ -766,7 +767,7 @@ def get_deliminating_timestamps(force_data, forque_transform_data, forque_distan
     stationary_duration=0.5, height_threshold=0.05,
     distance_to_mouth_threshold=0.35, distance_threshold=0.05,
     force_proportion=1.0/3,
-    distance_from_min_height=0.05, time_from_liftoff=2.0, extraction_epsilon=0.01,
+    distance_from_min_height=0.07, time_from_liftoff=2.0, extraction_epsilon=0.01,
     image_name=None, save_process=False):
     """
     force_data is a list of geometry_msgs/WrenchStamped messages with the F/T data
@@ -1091,7 +1092,7 @@ def get_distance_to_mouth_threshold(depth, image_header, camera_info, plate_uv, 
 #     # Write a de-transformed prediction function
 #     def predict(desired_time):
 #         timestamp_transformed = np.array([[desired_time - first_timestamp, 1]]) if ols_intercept_time is None else np.array([desired_time - ols_intercept_time])
-#         pred_pose = np.matmul(timestamp_transformed, coeffs).reshape((-1,))
+#         pred_pose = np.dot(timestamp_transformed, coeffs).reshape((-1,))
 #         pred_x = pred_pose[0]
 #         pred_y = pred_pose[1]
 #         pred_z = pred_pose[2]
@@ -1131,10 +1132,19 @@ def get_distance_to_mouth_threshold(depth, image_header, camera_info, plate_uv, 
 def get_action_schema_elements(
     food_origin_frames, tf_buffer, action_start_time, contact_time,
     extraction_time, end_time, force_data, forque_transform_data,
-    desired_parent_frame, fork_tip_frame_id, pre_grasp_ft_proportion=0.5,
+    desired_parent_frame, fork_tip_frame_id,
+    pre_grasp_initial_transform_linear_velocity_window=0.5, pre_grasp_initial_transform_distance=0.1,
+    pre_grasp_ft_proportion=0.5,
+    approach_frame_id="approach_frame",
     grasp_ft_proportion=0.5,
 ):
     """
+    Parameters:
+        - pre_grasp_initial_transform_linear_velocity_window: Num secs over which to get the movement near contact
+        - pre_grasp_initial_transform_distance: Distance (m) away from contact position to extrapolate the robot's motion
+        - pre_grasp_ft_proportion: proportion of the max force during grasp to set as the pre_grasp force threshold
+        - grasp_ft_proportion: Same but for the force at which to transition from grasp to extraction
+
     Returns:
         - food_reference_frame (geometry_msgs/TransformStamped)
             - Origin (x,y) is the center of the food's bounding ellipse, z is
@@ -1146,8 +1156,12 @@ def get_action_schema_elements(
         - pre_grasp_initial_utensil_transform (geometry_msgs/PoseStamped)
             - The utensil's 6D pose at action_start_time in the food_reference_frame
         - pre_grasp_force_threshold (float, newtons)
-            - Defined as pre_grasp_ft_proportion of the max torque between contact_time
-              and extraction_time.
+            - Defined as pre_grasp_ft_proportion of the max torque between start_time
+              and contact_time.
+        - approach_frame (geometry_msgs/TransformStamped)
+            - Transform from the food frame to the approach frame, which has the same
+              origin and is oriented where +x points away from the fork at the
+              pre-grasp initial transform.
         - grasp_in_food_twist (geometry_msgs/TwistStamped)
             - Take the utensil's 6D pose at contact_time, subtract if from the
               fork's  6D pose at extraction_time, and divide it by the duration.
@@ -1169,6 +1183,7 @@ def get_action_schema_elements(
     # First, find food_reference_frame and pre_grasp_target_offset by
     # determining which of the food_origin_frames the fork is closest to at contact.
     forque_transform_at_start = None
+    forque_transform_at_beginning_of_contact_window = None
     forque_transform_at_contact = None
     forque_transform_at_extraction = None
     forque_transform_at_end = None
@@ -1178,6 +1193,8 @@ def get_action_schema_elements(
         if forque_transform.header.stamp.to_sec() > action_start_time and forque_transform_at_start is None:
             forque_transform_at_start = forque_transform
         # contact
+        if forque_transform.header.stamp.to_sec() > contact_time - pre_grasp_initial_transform_linear_velocity_window and forque_transform_at_beginning_of_contact_window is None:
+            forque_transform_at_beginning_of_contact_window = forque_transform
         if forque_transform.header.stamp.to_sec() > contact_time and forque_transform_at_contact is None:
             forque_transform_at_contact = forque_transform
             min_dist = None
@@ -1190,6 +1207,7 @@ def get_action_schema_elements(
                     (forque_transform.transform.translation.x - food_origin_frame.transform.translation.x)**2.0 +
                     (forque_transform.transform.translation.y - food_origin_frame.transform.translation.y)**2.0 +
                     (forque_transform.transform.translation.z - food_origin_frame.transform.translation.z)**2.0)**0.5
+                # print(food_origin_frame, dist)
                 if min_dist is None or dist < min_dist:
                     min_dist = dist
                     min_dist_i = i
@@ -1221,13 +1239,28 @@ def get_action_schema_elements(
     if forque_transform_at_end is None: # If the end time is the bag end time
         forque_transform_at_end = forque_transform_data[-1]
 
-    # Compute pre_grasp_initial_utensil_transform
+    # Compute pre_grasp_initial_utensil_transform, by getting the movement near contact and extrapolating that a fixed distance from the contact position
+    d_position_near_contact = np.array([
+        forque_transform_at_beginning_of_contact_window.transform.translation.x - forque_transform_at_contact.transform.translation.x,
+        forque_transform_at_beginning_of_contact_window.transform.translation.y - forque_transform_at_contact.transform.translation.y,
+        forque_transform_at_beginning_of_contact_window.transform.translation.z - forque_transform_at_contact.transform.translation.z,
+    ])
+    d_position_near_contact /= np.linalg.norm(d_position_near_contact)
+    fork_start_transform = Transform(
+        Vector3(
+            d_position_near_contact[0] * pre_grasp_initial_transform_distance + forque_transform_at_contact.transform.translation.x,
+            d_position_near_contact[1] * pre_grasp_initial_transform_distance + forque_transform_at_contact.transform.translation.y,
+            d_position_near_contact[2] * pre_grasp_initial_transform_distance + forque_transform_at_contact.transform.translation.z,
+        ),
+        forque_transform_at_contact.transform.rotation,
+    )
+    # # Compute pre_grasp_initial_utensil_transform, by getting the transform from the initial fork position to the fork position at contact
+    # fork_start_transform = copy.deepcopy(forque_transform_at_start.transform)
+    # fork_start_transform.rotation = forque_transform_at_contact.rotation
+
     parent_to_food_matrix = transform_to_matrix(food_reference_frame.transform)
-    parent_to_fork_start_matrix = transform_to_matrix(forque_transform_at_start.transform)
+    parent_to_fork_start_matrix = transform_to_matrix(fork_start_transform)
     pre_grasp_initial_utensil_transform_matrix = tf.transformations.concatenate_matrices(tf.transformations.inverse_matrix(parent_to_food_matrix), parent_to_fork_start_matrix)
-    parent_to_fork_contact_matrix = transform_to_matrix(forque_transform_at_contact.transform)
-    food_to_fork_contact_matrix = tf.transformations.concatenate_matrices(tf.transformations.inverse_matrix(parent_to_food_matrix), parent_to_fork_contact_matrix)
-    pre_grasp_initial_utensil_transform_matrix[0:3,0:3] = food_to_fork_contact_matrix[0:3,0:3]
     pre_grasp_initial_utensil_transform = PoseStamped()
     pre_grasp_initial_utensil_transform.header = forque_transform_at_start.header
     pre_grasp_initial_utensil_transform.header.frame_id = food_reference_frame.child_frame_id
@@ -1252,14 +1285,40 @@ def get_action_schema_elements(
                 max_force = force_magnitude
     pre_grasp_force_threshold = pre_grasp_ft_proportion*max_force
 
+    # Get Approach Frame
+    fork_to_food_vector = pre_grasp_initial_utensil_transform.pose.position # since food is at the origin
+    angle_to_rotate = np.arctan2(-fork_to_food_vector.y, -fork_to_food_vector.x) # we want to point away from the fork
+    food_frame_to_approach_frame_matrix = tf.transformations.rotation_matrix(angle_to_rotate, [0,0,1])
+    approach_frame = TransformStamped(
+        Header(0, food_reference_frame.header.stamp, food_reference_frame.child_frame_id),
+        approach_frame_id,
+        matrix_to_transform(food_frame_to_approach_frame_matrix),
+    )
+    approach_to_parent_matrix = tf.transformations.concatenate_matrices(tf.transformations.inverse_matrix(food_frame_to_approach_frame_matrix), tf.transformations.inverse_matrix(parent_to_food_matrix))
+
     # Get grasp_in_food_twist and grasp_duration
     grasp_duration = extraction_time - contact_time
     # Get the fork pose at extraction_time in the frame of fork pose at contact time
+    parent_to_fork_contact_matrix = transform_to_matrix(forque_transform_at_contact.transform)
+    approach_to_fork_contact_matrix = tf.transformations.concatenate_matrices(approach_to_parent_matrix, parent_to_fork_contact_matrix)
     parent_to_fork_extraction_matrix = transform_to_matrix(forque_transform_at_extraction.transform)
+    # approach_to_fork_extraction_matrix = tf.transformations.concatenate_matrices(approach_to_parent_matrix, parent_to_fork_extraction_matrix)
+    # print(approach_to_fork_contact_matrix, approach_to_fork_extraction_matrix)
     fork_contact_to_extraction_transform_matrix = tf.transformations.concatenate_matrices(tf.transformations.inverse_matrix(parent_to_fork_contact_matrix), parent_to_fork_extraction_matrix)
+    # Translation in appraoch frame
+    # print("A: displacement in fork contact frame", fork_contact_to_extraction_transform_matrix[0:3,3:])
+    fork_contact_to_extraction_transform_matrix[0:3,3:] = np.dot(approach_to_fork_contact_matrix[0:3,0:3], fork_contact_to_extraction_transform_matrix[0:3,3:])
+    # print("A: displacement in approach frame", fork_contact_to_extraction_transform_matrix[0:3,3:])
+    # print("A: transform", approach_to_fork_contact_matrix)
+    # print("A: forque_transform_at_contact", forque_transform_at_contact)
+    # print("A: approach_frame", approach_frame)
+    # print("A: approach_to_parent_matrix", approach_to_parent_matrix)
+    # fork_contact_to_extraction_transform_matrix[0,3] = approach_to_fork_extraction_matrix[0,3] - approach_to_fork_contact_matrix[0,3]
+    # fork_contact_to_extraction_transform_matrix[1,3] = approach_to_fork_extraction_matrix[1,3] - approach_to_fork_contact_matrix[1,3]
+    # fork_contact_to_extraction_transform_matrix[2,3] = approach_to_fork_extraction_matrix[2,3] - approach_to_fork_contact_matrix[2,3]
     grasp_in_food_twist = TwistStamped()
     grasp_in_food_twist.header = forque_transform_at_contact.header
-    grasp_in_food_twist.header.frame_id = fork_tip_frame_id
+    grasp_in_food_twist.header.frame_id = "linear_%s_angular_%s" % (approach_frame_id, fork_tip_frame_id)
     # print("GRASP")
     grasp_in_food_twist.twist = matrix_to_twist(fork_contact_to_extraction_transform_matrix, grasp_duration)
 
@@ -1285,12 +1344,19 @@ def get_action_schema_elements(
     # Get extraction_out_of_food_twist and extraction_duration
     extraction_duration = end_time - extraction_time
     # Get the fork pose at end_time in the frame of fork pose at extraction_time
-    parent_to_fork_end_matrix = transform_to_matrix(forque_transform_at_end.transform)
     parent_to_fork_extraction_matrix = transform_to_matrix(forque_transform_at_extraction.transform)
+    approach_to_fork_extraction_matrix = tf.transformations.concatenate_matrices(approach_to_parent_matrix, parent_to_fork_extraction_matrix)
+    parent_to_fork_end_matrix = transform_to_matrix(forque_transform_at_end.transform)
+    # approach_to_fork_end_matrix = tf.transformations.concatenate_matrices(approach_to_parent_matrix, parent_to_fork_end_matrix)
     fork_extraction_to_end_transform_matrix = tf.transformations.concatenate_matrices(tf.transformations.inverse_matrix(parent_to_fork_extraction_matrix), parent_to_fork_end_matrix)
+    # Translation in appraoch frame
+    fork_extraction_to_end_transform_matrix[0:3,3:] = np.dot(approach_to_fork_extraction_matrix[0:3,0:3], fork_extraction_to_end_transform_matrix[0:3,3:])
+    # fork_extraction_to_end_transform_matrix[0,3] = approach_to_fork_end_matrix[0,3] - approach_to_fork_extraction_matrix[0,3]
+    # fork_extraction_to_end_transform_matrix[1,3] = approach_to_fork_end_matrix[1,3] - approach_to_fork_extraction_matrix[1,3]
+    # fork_extraction_to_end_transform_matrix[2,3] = approach_to_fork_end_matrix[2,3] - approach_to_fork_extraction_matrix[2,3]
     extraction_out_of_food_twist = TwistStamped()
     extraction_out_of_food_twist.header = forque_transform_at_extraction.header
-    extraction_out_of_food_twist.header.frame_id = fork_tip_frame_id
+    extraction_out_of_food_twist.header.frame_id = "linear_%s_angular_%s" % (approach_frame_id, fork_tip_frame_id)
     extraction_out_of_food_twist.twist = matrix_to_twist(fork_extraction_to_end_transform_matrix, extraction_duration)
 
     return (
@@ -1298,6 +1364,7 @@ def get_action_schema_elements(
         pre_grasp_target_offset, # geometry_msgs/Vector3
         pre_grasp_initial_utensil_transform, # geometry_msgs/PoseStamped
         pre_grasp_force_threshold, # float, newtons
+        approach_frame, # geometry_msgs/TransformStamped
         grasp_in_food_twist, # geometry_msgs/TwistStamped
         grasp_force_threshold, # float, newtons
         grasp_torque_threshold, # float, newston-meters
@@ -1329,22 +1396,43 @@ def linear_average_transform(t0, t1, alpha):
 
     return retval
 
-def apply_twist(start_transform, twist, duration, granularity):
+def apply_twist(start_transform, approach_frame, food_reference_frame, twist, duration, granularity):
+    """
+    Let F be the frame that start_transform is in. Then, approach_frame must have
+    as its parent_frame F. And then the angular velocity of the twist will be
+    interpreted in the start_transform frame, but the linear velocity will be
+    interpreted in the approach_frame.
+    """
     retval = []
     parent_to_start_transform_matrix = transform_to_matrix(start_transform.transform)
+    parent_to_food_matrix = transform_to_matrix(food_reference_frame.transform)
+    food_to_approach_matrix = transform_to_matrix(approach_frame.transform)
+    start_transform_to_approach_matrix = tf.transformations.concatenate_matrices(tf.transformations.concatenate_matrices(tf.transformations.inverse_matrix(parent_to_start_transform_matrix), parent_to_food_matrix), food_to_approach_matrix)
 
     for i in range(1, granularity+1):
         elapsed_time = duration*float(i)/granularity
         transform = copy.deepcopy(start_transform)
         transform.header.stamp += rospy.Duration(elapsed_time)
+        # Apply the angular velocity in the start_transform frame
         elapsed_transform = tf.transformations.euler_matrix(
             twist.twist.angular.x*elapsed_time,
             twist.twist.angular.y*elapsed_time,
             twist.twist.angular.z*elapsed_time,
             EULER_ORDER)
-        elapsed_transform[0][3] = twist.twist.linear.x*elapsed_time
-        elapsed_transform[1][3] = twist.twist.linear.y*elapsed_time
-        elapsed_transform[2][3] = twist.twist.linear.z*elapsed_time
+        # # Apply the linear velocity in the start_transform frame
+        # elapsed_transform[0][3] = twist.twist.linear.x*elapsed_time
+        # elapsed_transform[1][3] = twist.twist.linear.y*elapsed_time
+        # elapsed_transform[2][3] = twist.twist.linear.z*elapsed_time
+        # Apply the linear velocity in the approach frame
+        displacement = np.array([[twist.twist.linear.x], [twist.twist.linear.y], [twist.twist.linear.z]])*elapsed_time
+        elapsed_transform[0:3, 3:] = np.dot(start_transform_to_approach_matrix[0:3,0:3], displacement)
+        # if i == granularity:
+        #     print("B: displacement in approach frame", displacement)
+        #     print("B: displacement in start transform frame", elapsed_transform[0:3, 3:])
+        #     print("B: transform inv", tf.transformations.inverse_matrix(start_transform_to_approach_matrix))
+        #     print("B: start_transform", start_transform)
+        #     print("B: approach_frame", approach_frame)
+        #     print("B: food_to_approach_matrix", food_to_approach_matrix)
 
         final_matrix = tf.transformations.concatenate_matrices(parent_to_start_transform_matrix, elapsed_transform)
         transform.transform = matrix_to_transform(final_matrix)
@@ -1360,6 +1448,7 @@ def get_predicted_forque_transform_data(
     pre_grasp_target_offset, # geometry_msgs/Vector3
     pre_grasp_initial_utensil_transform, # geometry_msgs/PoseStamped
     pre_grasp_force_threshold, # float, newtons
+    approach_frame, # geometry_msgs/TransformStamped
     grasp_in_food_twist, # geometry_msgs/TwistStamped
     grasp_force_threshold, # float, newtons
     grasp_torque_threshold, # float, newston-meters
@@ -1405,10 +1494,10 @@ def get_predicted_forque_transform_data(
         predicted_forque_transform_data.append(predicted_forque_transform)
 
     # Grasp
-    predicted_forque_transform_data += apply_twist(predicted_forque_transform_data[-1], grasp_in_food_twist, grasp_duration, granularity)
+    predicted_forque_transform_data += apply_twist(predicted_forque_transform_data[-1], approach_frame, food_reference_frame, grasp_in_food_twist, grasp_duration, granularity)
 
     # Extraction
-    predicted_forque_transform_data += apply_twist(predicted_forque_transform_data[-1], extraction_out_of_food_twist, extraction_duration, granularity)
+    predicted_forque_transform_data += apply_twist(predicted_forque_transform_data[-1], approach_frame, food_reference_frame, extraction_out_of_food_twist, extraction_duration, granularity)
 
     return predicted_forque_transform_data
 
@@ -1874,6 +1963,7 @@ def process_rosbag(rosbag_path,
                 pre_grasp_target_offset, # geometry_msgs/Vector3
                 pre_grasp_initial_utensil_transform, # geometry_msgs/PoseStamped
                 pre_grasp_force_threshold, # float, newtons
+                approach_frame, # geometry_msgs/TransformStamped
                 grasp_in_food_twist, # geometry_msgs/TwistStamped
                 grasp_force_threshold, # float, newtons
                 grasp_torque_threshold, # float, newston-meters
@@ -1894,6 +1984,7 @@ def process_rosbag(rosbag_path,
                 pre_grasp_target_offset, # geometry_msgs/Vector3
                 pre_grasp_initial_utensil_transform, # geometry_msgs/PoseStamped
                 pre_grasp_force_threshold, # float, newtons
+                approach_frame, # geometry_msgs/TransformStamped
                 grasp_in_food_twist, # geometry_msgs/TwistStamped
                 grasp_force_threshold, # float, newtons
                 grasp_torque_threshold, # float, newston-meters
@@ -1935,6 +2026,7 @@ def process_rosbag(rosbag_path,
                     pre_grasp_initial_utensil_transform.pose.position.z,
                 ] + quaternion_msg_to_euler(pre_grasp_initial_utensil_transform.pose.orientation) + [
                     pre_grasp_force_threshold,
+                ] + quaternion_msg_to_euler(approach_frame.transform.rotation) + [
                     grasp_in_food_twist.twist.linear.x,
                     grasp_in_food_twist.twist.linear.y,
                     grasp_in_food_twist.twist.linear.z,
@@ -1971,9 +2063,9 @@ if __name__ == "__main__":
         base_dir = "/home/amalnanavati/workspaces/amal_noetic_ws/rosbags/expanded_action_space_study"
         out_dir = "/home/amalnanavati/workspaces/amal_noetic_ws/src/feeding_study_cleanup/scripts/detecting_food/data"
         rosbag_names = [
-            "1-sandwich-1_2021-11-23-14-00-49.bag",
-            "1-spinach-4_2021-11-23-13-42-15.bag",
-            "2-pizza-4_2021-11-23-15-19-49.bag",
+            # "1-sandwich-1_2021-11-23-14-00-49.bag",
+            # "1-spinach-4_2021-11-23-13-42-15.bag",
+            # "2-pizza-4_2021-11-23-15-19-49.bag",
             "2-sandwich-5_2021-11-23-15-08-52.bag",
             "3-lettuce-4_2021-11-23-18-04-06.bag",
             "3-riceandbeans-5_2021-11-23-17-43-50.bag",
@@ -2066,6 +2158,9 @@ if __name__ == "__main__":
         "Pre-Grasp Initial Utensil Transform Rotation Y",
         "Pre-Grasp Initial Utensil Transform Rotation Z",
         "Pre-Grasp Force Threshold",
+        "Approach Frame Rotation X",
+        "Approach Frame Rotation Y",
+        "Approach Frame Rotation Z",
         "Grasp In-Food Twist Linear X",
         "Grasp In-Food Twist Linear Y",
         "Grasp In-Food Twist Linear Z",
