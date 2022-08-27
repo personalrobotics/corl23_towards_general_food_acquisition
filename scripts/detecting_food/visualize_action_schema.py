@@ -374,7 +374,15 @@ def get_predicted_forque_transform_data_raw(food_reference_frame, approach_frame
 
 class VisualizeActionSchema:
     def __init__(self, rosbag_filename, action_schema_filepath, action_schema_without_target_offset=None,
-    world_frame_id="TableBody", food_frame_id="detected_food", fork_tip_frame_id="fork_tip", approach_frame_id="approach_frame"):
+        world_frame_id="TableBody", food_frame_id="detected_food", fork_tip_frame_id="fork_tip", approach_frame_id="approach_frame"):
+        """
+        If action_schema_without_target_offset is None, it visualizes the extracted
+        schema element for the specified bagfile. If action_schema_without_target_offset is
+        not None, it appends the target offset from the specified rosbag's extracted
+        action schema, but then uses the rest of the action schema that was passed to it.
+        This is because the target offset part of the action schema should be perceived,
+        whereas the rest should be specified.
+        """
         # Initialize the subscriber and publishers
         self.sub = rospy.Subscriber("forque_tip", PoseStamped, self.forque_tip_callback)
         self.pub = rospy.Publisher('forque_tip/predicted', PoseStamped, queue_size=1)
@@ -472,7 +480,7 @@ if __name__ == '__main__':
 
     rosbag_filename = rospy.get_param("~rosbag_filename")
     action_schema_filepath = rospy.get_param("~action_schema_filepath")
-    action_schema_without_target_offset = None
+    action_schema_without_target_offset = None # get the action schema element for the specified bagfile.
     # # K Medoids Center 0 -- skewer with a long grasp
     # action_schema_without_target_offset = [-0.0241435154, 0.0627733441, 0.0903450192, 2.9335558522, -0.0668797969, -0.6043233543, 1.411675406, 0.0040550042, -0.0020559625, -0.0111952656, -0.0456289485, 0.1015461256, 0.1079535895, 18.1902203375, 0.0053723529, 2.1900441647, 0.0293917653, 0.0172552147, 0.2330012648, -1.4520816436, 0.1509430804, 0.4077787458, 0.169929266]
     # # K Medoids Center 1 -- kinda a slant rotation during grasp
