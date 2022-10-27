@@ -18,7 +18,7 @@ EULER_ORDER = 'rzyx'
 
 if __name__ == "__main__":
     # Directory Structure Information
-    base_dir = "/workspace/rosbags/expanded_action_space_study/processed/"
+    base_dir = "/absolute_path_to_parent_folder/"
     participant_num = 6
     food_name = "chicken"
     trial_num = 1
@@ -113,5 +113,3 @@ if __name__ == "__main__":
         camera_info_pub.publish(camera_info)
         img_pub.publish(img)
         r.sleep()
-
-    pass
