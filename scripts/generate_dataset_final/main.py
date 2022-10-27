@@ -444,8 +444,14 @@ if __name__ == "__main__":
         "4-noodles-1_2021-11-23-16-02-06.bag", # tf2.LookupException: "TableBody" passed to lookupTransform argument target_frame does not exist.
         "5-jello-1_2021-11-24-10-12-17.bag", # tf2.LookupException: "TableBody" passed to lookupTransform argument target_frame does not exist.
         "6-pizza-2_2021-11-24-12-43-37.bag", # tf2.ExtrapolationException: Lookup would require extrapolation at time 1637786617.673836946, but only time 1637786617.683793783 is in the buffer, when looking up transform from frame [fork_tip] to frame [TableBody]
+        "8-spinach-4_2021-11-24-15-49-24.bag", # tf2.ExtrapolationException: Lookup would require extrapolation at time 1637797764.433838367, but only time 1637797764.443837643 is in the buffer, when looking up transform from frame [fork_tip] to frame [TableBody]
+        "9-jello-1_2021-11-24-16-37-33.bag", # tf2.LookupException: "TableBody" passed to lookupTransform argument target_frame does not exist.
+        "9-lettuce-1_2021-11-24-16-42-16.bag", # tf2.LookupException: "TableBody" passed to lookupTransform argument target_frame does not exist.
+        "9-lettuce-2_2021-11-24-16-42-29.bag", # tf2.LookupException: "TableBody" passed to lookupTransform argument target_frame does not exist.
+        "9-lettuce-3_2021-11-24-16-42-45.bag", # tf2.LookupException: "TableBody" passed to lookupTransform argument target_frame does not exist.
+        "9-broccoli-5_2021-11-24-16-45-37.bag", # tf2.ExtrapolationException: Lookup would require extrapolation at time 1637801137.483813286, but only time 1637801137.483864307 is in the buffer, when looking up transform from frame [fork_tip] to frame [TableBody]
     ]
-    start_at_i = 330
+    start_at_i = 0
 
     # Find all the rosbags in IN_DIR
     total_rosbags = 0

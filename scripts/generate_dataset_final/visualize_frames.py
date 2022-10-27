@@ -19,10 +19,10 @@ EULER_ORDER = 'rzyx'
 if __name__ == "__main__":
     # Directory Structure Information
     base_dir = "/workspace/rosbags/expanded_action_space_study/processed/"
-    participant_num = 1
+    participant_num = 6
     food_name = "chicken"
-    trial_num = 3
-    image_timestamp = 1637703870600778341
+    trial_num = 1
+    image_timestamp = 1637787671591941595
 
     # Initialize the node
     rospy.init_node('publish_forque_transform')
@@ -57,20 +57,27 @@ if __name__ == "__main__":
                 continue
             # Select the first timestamp after the image timestamp
             if timestamp >= image_timestamp/10.0**9:
-                print(timestamp)
-                msg = TransformStamped()
-                msg.header.frame_id = "world"
-                msg.child_frame_id = "fork_tip"
-                msg.transform.translation.x = float(row[7])
-                msg.transform.translation.y = float(row[8])
-                msg.transform.translation.z = float(row[9])
-                q = tf.transformations.quaternion_from_euler(float(row[12]), float(row[11]), float(row[10]), EULER_ORDER)
-                msg.transform.rotation.x = q[0]
-                msg.transform.rotation.y = q[1]
-                msg.transform.rotation.z = q[2]
-                msg.transform.rotation.w = q[3]
-                transforms.append(msg)
                 break
+            prev_row = row
+        # Interpolate between the two timestamps
+        row_timestamp = float(row[0])
+        prev_row_timestamp = float(prev_row[0])
+        alpha = (image_timestamp/10.0**9 - prev_row_timestamp)/(row_timestamp - prev_row_timestamp)
+        msg = TransformStamped()
+        msg.header.frame_id = "world"
+        msg.child_frame_id = "fork_tip"
+        msg.transform.translation.x = float(row[7])*alpha + float(prev_row[7])*(1.0-alpha)
+        msg.transform.translation.y = float(row[8])*alpha + float(prev_row[8])*(1.0-alpha)
+        msg.transform.translation.z = float(row[9])*alpha + float(prev_row[9])*(1.0-alpha)
+        q = tf.transformations.quaternion_from_euler(
+            float(row[12])*alpha + float(prev_row[12])*(1.0-alpha),
+            float(row[11])*alpha + float(prev_row[11])*(1.0-alpha),
+            float(row[10])*alpha + float(prev_row[10])*(1.0-alpha), EULER_ORDER)
+        msg.transform.rotation.x = q[0]
+        msg.transform.rotation.y = q[1]
+        msg.transform.rotation.z = q[2]
+        msg.transform.rotation.w = q[3]
+        transforms.append(msg)
     broadcaster.sendTransform(transforms)
 
     # Generate the CameraInfo message
