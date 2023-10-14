@@ -4,6 +4,7 @@ import numpy as np
 import os
 import pandas as pd
 import pprint
+from scipy.cluster.hierarchy import dendrogram
 import seaborn as sns
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
@@ -180,6 +181,9 @@ def run_k_medoids(dataframe, k=None):
         plt.clf()
     else:
         kmedoids = KMedoids(n_clusters=k, method='alternate').fit(data)
+
+        print("Medoid Indices", kmedoids.medoid_indices_)
+
         centers = pd.DataFrame(np.c_[np.arange(k),scaler.inverse_transform(kmedoids.cluster_centers_)], columns=["Cluster ID"] + ACTION_SCHEMA_COLUMNS)
         centers.to_csv(os.path.join(out_dir, "kmedoids_centers_k_%d.csv" % k))
 
@@ -210,8 +214,10 @@ def run_k_medoids_and_get_confusion_matrix(dataframe, k1, k2, cosine=False):
     print("k", k2, "num_unique_participants", num_unique_participants)
 
     # Get cluster centers, and unscale them
-    centers1 = scaler.inverse_transform(kmedoids1.cluster_centers_)
-    centers2 = scaler.inverse_transform(kmedoids2.cluster_centers_)
+    # centers1 = scaler.inverse_transform(kmedoids1.cluster_centers_)
+    # centers2 = scaler.inverse_transform(kmedoids2.cluster_centers_)
+    centers1 = kmedoids1.cluster_centers_
+    centers2 = kmedoids2.cluster_centers_
 
     # Get confusion matrix
     confusion_matrix = np.zeros((k1, k2))
@@ -232,10 +238,70 @@ def run_k_medoids_and_get_confusion_matrix(dataframe, k1, k2, cosine=False):
     plt.savefig(os.path.join(out_dir, "kmedoids_confusion_matrix_k1_%d_k2_%d.png" % (k1, k2)))
     plt.clf()
 
+
+def plot_dendrogram(model, **kwargs):
+    # Create linkage matrix and then plot the dendrogram
+
+    # create the counts of samples under each node
+    counts = np.zeros(model.children_.shape[0])
+    n_samples = len(model.labels_)
+    for i, merge in enumerate(model.children_):
+        current_count = 0
+        for child_idx in merge:
+            if child_idx < n_samples:
+                current_count += 1  # leaf node
+            else:
+                current_count += counts[child_idx - n_samples]
+        counts[i] = current_count
+
+    linkage_matrix = np.column_stack(
+        [model.children_, model.distances_, counts]
+    ).astype(float)
+
+    # Plot the corresponding dendrogram
+    dendrogram(linkage_matrix, **kwargs)
+
+def run_agglomerative_clustering(dataframe):
+    # First, standardize the data
+    scaler = StandardScaler().fit(dataframe[ACTION_SCHEMA_COLUMNS])
+    data = scaler.transform(dataframe[ACTION_SCHEMA_COLUMNS])
+
+    # setting distance_threshold=0 ensures we compute the full tree.
+    model = AgglomerativeClustering(distance_threshold=0, n_clusters=None)
+    # model = AgglomerativeClustering(n_clusters=11, compute_distances=True)
+
+    model = model.fit(data)
+    plt.figure(figsize=(30, 10))
+    plt.title("Hierarchical Clustering Dendrogram")
+    # plot the top three levels of the dendrogram
+    plot_dendrogram(model, truncate_mode="level", p=407)
+    plt.xlabel("Number of points in node (or index of point if no parenthesis).")
+    # plt.show()
+    plt.savefig(os.path.join(out_dir, "agglomerative_clustering_dendrogram.png"), dpi=300, bbox_inches='tight')
+
+def run_agglomerative_clustering_with_num_clusters(dataframe, k):
+    # First, standardize the data
+    scaler = StandardScaler().fit(dataframe[ACTION_SCHEMA_COLUMNS])
+    data = scaler.transform(dataframe[ACTION_SCHEMA_COLUMNS])
+
+    model = AgglomerativeClustering(n_clusters=k)
+
+    labels = model.fit_predict(data)
+
+    # Get num datapoints in each cluster
+    print("k", k, "cluster sizes", np.unique(labels, return_counts=True)[1])
+
+    # The medoid indices from k-medoids for k=11
+    medoid_indices = [304, 233, 38, 332, 261, 288, 299, 42, 270, 191, 204]
+
+    pprint.pprint(list(zip(range(len(labels)), labels)))
+    pprint.pprint(labels[medoid_indices])
+
+
 if __name__ == "__main__":
     # Load the data
     base_dir = "/Users/amalnanavati/Documents/PRL/feeding_study_cleanup/data"
-    out_dir = "/Users/amalnanavati/Documents/PRL/feeding_study_cleanup/data/output"
+    out_dir = "/Users/amalnanavati/Documents/PRL/feeding_study_cleanup/data/output2"
     file_name = "action_schema_data.csv"
     dataframe = pd.read_csv(os.path.join(base_dir, file_name))
 
@@ -266,5 +332,9 @@ if __name__ == "__main__":
     # ks = range(1,16)
     # for i in range(len(ks)-1):
     #     k1 = ks[i]
-    #     k2 = ks[i+1]
+    #     k2 = ks[i+1] # 11 # 
     #     run_k_medoids_and_get_confusion_matrix(dataframe, k1, k2, cosine=False)
+
+    # # Run agglomerative clustering
+    # # run_agglomerative_clustering(dataframe)
+    # run_agglomerative_clustering_with_num_clusters(dataframe, k=11)
