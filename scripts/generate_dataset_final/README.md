@@ -13,6 +13,8 @@ O_x, O_y, O_z: Euler angles of the forktip in world coordinates.
 
 The forces and torques are in the local coordinate frame of the F/T sensor. The poses and velocities are in the world frame (the surface of the table, with +y rising out of the table, and having an arbitrary orientation around the y-axis). The file `<trial_num>_static_transforms.csv` contains static transforms from the: (a) world frame to the camera's optical frame; (b) world frame to the mouth that users were moving the fork towards; and (c) fork_tip frame to the force torque sensor frame. Note that to add (c) to a continuous transform tree, you have to publish the fork_tip pose from the aforementioned CSV as a transform from the world frame to the fork_tip frame.
 
+**NOTE**: The fork_tip frame is defined with +x going down and +y going to the left (if you are looking down the fork, from handle-to-tip, with the fork curving up). This might be different from your robot's URDF, in which case you'll have to transform it accordingly.
+
 The image included in the dataset, `frames.png`, shows the frames overlaid onto one of the camera images. Red is +x, green is +y, and blue is +z.
 
 3. CSV Data Rotations
